@@ -52,6 +52,13 @@ jobs:
               return;
             }
 
+            function normalizeLabelName(value) {
+              return String(value || '')
+                .trim()
+                .toLowerCase()
+                .replace(/[_\s]+/g, '-');
+            }
+
             const repoLabels = await github.paginate(
               github.rest.issues.listLabelsForRepo,
               {
@@ -60,9 +67,14 @@ jobs:
                 per_page: 100
               }
             );
-            const availableLabels = new Set(
-              repoLabels.map(label => String(label.name || '').trim()).filter(Boolean)
-            );
+            const availableLabels = new Map();
+            for (const label of repoLabels) {
+              const actualName = String(label.name || '').trim();
+              const normalizedName = normalizeLabelName(actualName);
+              if (actualName && normalizedName && !availableLabels.has(normalizedName)) {
+                availableLabels.set(normalizedName, actualName);
+              }
+            }
 
             function extractMetaFromBody(bodyText) {
               const body = String(bodyText || '');
@@ -154,19 +166,22 @@ jobs:
               ].join('\n');
 
               const labels = [];
-              if (availableLabels.has(statusTodo)) {
-                labels.push(statusTodo);
+              const statusTodoLabel = availableLabels.get(normalizeLabelName(statusTodo));
+              if (statusTodoLabel) {
+                labels.push(statusTodoLabel);
               }
               if (meta.difficulty) {
-                if (availableLabels.has(meta.difficulty)) {
-                  labels.push(meta.difficulty);
+                const difficultyLabel = availableLabels.get(normalizeLabelName(meta.difficulty));
+                if (difficultyLabel) {
+                  labels.push(difficultyLabel);
                 } else {
                   core.info(`Skip missing label: ${meta.difficulty}`);
                 }
               }
               for (const topic of meta.topics) {
-                if (availableLabels.has(topic)) {
-                  labels.push(topic);
+                const topicLabel = availableLabels.get(normalizeLabelName(topic));
+                if (topicLabel) {
+                  labels.push(topicLabel);
                 } else {
                   core.info(`Skip missing label: ${topic}`);
                 }
