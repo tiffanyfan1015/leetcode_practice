@@ -52,6 +52,38 @@ jobs:
               return;
             }
 
+            const repoLabels = await github.paginate(
+              github.rest.issues.listLabelsForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                per_page: 100
+              }
+            );
+            const availableLabels = new Set(
+              repoLabels.map(label => String(label.name || '').trim()).filter(Boolean)
+            );
+
+            function extractMetaFromBody(bodyText) {
+              const body = String(bodyText || '');
+              const difficultyMatch = body.match(/^難度：\s*(.+)$/m);
+              const topicsMatch = body.match(/^主題：\s*(.+)$/m);
+
+              const difficulty = difficultyMatch
+                ? difficultyMatch[1].trim().toLowerCase()
+                : null;
+
+              const topics = topicsMatch
+                ? topicsMatch[1]
+                    .split('/')
+                    .map(s => s.trim().toLowerCase())
+                    .filter(Boolean)
+                    .map(s => s.replace(/\s+/g, '-'))
+                : [];
+
+              return { difficulty, topics };
+            }
+
             const sourceIssues = await github.paginate(
               github.rest.issues.listForRepo,
               {
@@ -106,21 +138,46 @@ jobs:
                 continue;
               }
 
+              const originalBody = String(issue.body || '').trim();
+              const meta = extractMetaFromBody(originalBody);
               const body = [
                 `Source Issue: ${issue.html_url}`,
                 '',
                 `Original title: ${issue.title}`,
                 '',
+                '## Original issue content',
+                '',
+                originalBody || '_No content_',
+                '',
                 `<!-- source_repo: ${sourceOwner}/${sourceRepo} -->`,
                 `<!-- source_issue: ${issue.number} -->`
               ].join('\n');
+
+              const labels = [];
+              if (availableLabels.has(statusTodo)) {
+                labels.push(statusTodo);
+              }
+              if (meta.difficulty) {
+                if (availableLabels.has(meta.difficulty)) {
+                  labels.push(meta.difficulty);
+                } else {
+                  core.info(`Skip missing label: ${meta.difficulty}`);
+                }
+              }
+              for (const topic of meta.topics) {
+                if (availableLabels.has(topic)) {
+                  labels.push(topic);
+                } else {
+                  core.info(`Skip missing label: ${topic}`);
+                }
+              }
 
               await github.rest.issues.create({
                 owner: targetOwner,
                 repo: targetRepo,
                 title: `[LeetCode] ${issue.title}`,
                 body,
-                labels: [statusTodo]
+                labels: [...new Set(labels)]
               });
 
               createdCount += 1;

@@ -1,0 +1,169 @@
+name: Backfill LeetCode Issues
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Backfill synced issues
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const configPath = path.join(process.env.GITHUB_WORKSPACE, 'leetcode.config.json');
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+            const sourceOwner = config.source.owner;
+            const sourceRepo = config.source.repo;
+            const targetOwner = config.target.owner;
+            const targetRepo = config.target.repo;
+            const statusTodo = config.labels.statusTodo;
+            const statusSolving = config.labels.statusSolving;
+            const statusSolved = config.labels.statusSolved;
+
+            const repoLabels = await github.paginate(
+              github.rest.issues.listLabelsForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                per_page: 100
+              }
+            );
+            const availableLabels = new Set(
+              repoLabels.map(label => String(label.name || '').trim()).filter(Boolean)
+            );
+
+            function extractMetaFromBody(bodyText) {
+              const body = String(bodyText || '');
+              const difficultyMatch = body.match(/^難度：\s*(.+)$/m);
+              const topicsMatch = body.match(/^主題：\s*(.+)$/m);
+
+              const difficulty = difficultyMatch
+                ? difficultyMatch[1].trim().toLowerCase()
+                : null;
+
+              const topics = topicsMatch
+                ? topicsMatch[1]
+                    .split('/')
+                    .map(s => s.trim().toLowerCase())
+                    .filter(Boolean)
+                    .map(s => s.replace(/\s+/g, '-'))
+                : [];
+
+              return { difficulty, topics };
+            }
+
+            function buildSyncedBody(sourceIssue) {
+              const originalBody = String(sourceIssue.body || '').trim();
+              return [
+                `Source Issue: ${sourceIssue.html_url}`,
+                '',
+                `Original title: ${sourceIssue.title}`,
+                '',
+                '## Original issue content',
+                '',
+                originalBody || '_No content_',
+                '',
+                `<!-- source_repo: ${sourceOwner}/${sourceRepo} -->`,
+                `<!-- source_issue: ${sourceIssue.number} -->`
+              ].join('\n');
+            }
+
+            const targetIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                state: 'all',
+                per_page: 100
+              }
+            );
+
+            const syncedIssues = targetIssues.filter(issue => {
+              const body = String(issue.body || '');
+              return body.includes(`<!-- source_repo: ${sourceOwner}/${sourceRepo} -->`);
+            });
+
+            core.info(`Found ${syncedIssues.length} synced issue(s) to backfill.`);
+
+            let updatedCount = 0;
+
+            for (const issue of syncedIssues) {
+              const body = String(issue.body || '');
+              const match = body.match(/<!--\s*source_issue:\s*(\d+)\s*-->/);
+              if (!match) {
+                core.info(`Skip target issue #${issue.number}: no source_issue marker`);
+                continue;
+              }
+
+              const sourceIssueNumber = Number(match[1]);
+              const sourceIssue = await github.rest.issues.get({
+                owner: sourceOwner,
+                repo: sourceRepo,
+                issue_number: sourceIssueNumber
+              });
+
+              const sourceData = sourceIssue.data;
+              const meta = extractMetaFromBody(sourceData.body || '');
+              const nextBody = buildSyncedBody(sourceData);
+
+              const existingLabels = (issue.labels || []).map(label =>
+                typeof label === 'string' ? label : label.name
+              ).filter(Boolean);
+
+              const statusLabels = [statusTodo, statusSolving, statusSolved];
+              const keptLabels = existingLabels.filter(name => {
+                if (['easy', 'medium', 'hard'].includes(name)) return false;
+                if (statusLabels.includes(name)) return true;
+                return true;
+              });
+
+              const labels = [...keptLabels];
+              if (meta.difficulty && !labels.includes(meta.difficulty)) {
+                if (availableLabels.has(meta.difficulty)) {
+                  labels.push(meta.difficulty);
+                } else {
+                  core.info(`Skip missing label: ${meta.difficulty}`);
+                }
+              }
+              for (const topic of meta.topics) {
+                if (!labels.includes(topic)) {
+                  if (availableLabels.has(topic)) {
+                    labels.push(topic);
+                  } else {
+                    core.info(`Skip missing label: ${topic}`);
+                  }
+                }
+              }
+
+              await github.rest.issues.update({
+                owner: targetOwner,
+                repo: targetRepo,
+                issue_number: issue.number,
+                body: nextBody
+              });
+
+              await github.rest.issues.setLabels({
+                owner: targetOwner,
+                repo: targetRepo,
+                issue_number: issue.number,
+                labels
+              });
+
+              updatedCount += 1;
+              core.info(`Backfilled target issue #${issue.number} from source #${sourceIssueNumber}`);
+            }
+
+            core.info(`Done. Updated ${updatedCount} issue(s).`);

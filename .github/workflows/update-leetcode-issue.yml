@@ -79,6 +79,18 @@ jobs:
             const difficultyPrefix = config.labels.difficultyPrefix;
             const topicPrefix = config.labels.topicPrefix;
 
+            const repoLabels = await github.paginate(
+              github.rest.issues.listLabelsForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                per_page: 100
+              }
+            );
+            const availableLabels = new Set(
+              repoLabels.map(label => String(label.name || '').trim()).filter(Boolean)
+            );
+
             const sourceIssueNumber = Number(process.env.INPUT_SOURCE_ISSUE_NUMBER);
             const slug = process.env.INPUT_SLUG;
             const difficulty = String(process.env.INPUT_DIFFICULTY || '').trim().toLowerCase();
@@ -118,10 +130,28 @@ jobs:
               .map(s => s.trim().toLowerCase())
               .filter(Boolean);
 
-            const desiredLabels = new Set([markAsSolved ? statusSolved : statusSolving]);
-            desiredLabels.add(`${difficultyPrefix}${difficulty}`);
+            const desiredLabels = new Set();
+            const statusLabel = markAsSolved ? statusSolved : statusSolving;
+            if (availableLabels.has(statusLabel)) {
+              desiredLabels.add(statusLabel);
+            } else {
+              core.info(`Skip missing label: ${statusLabel}`);
+            }
+
+            const difficultyLabel = `${difficultyPrefix}${difficulty}`;
+            if (availableLabels.has(difficultyLabel)) {
+              desiredLabels.add(difficultyLabel);
+            } else {
+              core.info(`Skip missing label: ${difficultyLabel}`);
+            }
+
             for (const topic of topics) {
-              desiredLabels.add(`${topicPrefix}${topic}`);
+              const topicLabel = `${topicPrefix}${topic}`;
+              if (availableLabels.has(topicLabel)) {
+                desiredLabels.add(topicLabel);
+              } else {
+                core.info(`Skip missing label: ${topicLabel}`);
+              }
             }
 
             const existingLabels = (targetIssue.labels || []).map(label =>
