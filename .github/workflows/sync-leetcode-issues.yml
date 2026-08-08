@@ -56,7 +56,19 @@ jobs:
               return String(value || '')
                 .trim()
                 .toLowerCase()
+                .replace(/`+/g, '')
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                .replace(/\*\*/g, '')
                 .replace(/[_\s]+/g, '-');
+            }
+
+            function cleanMetaValue(value) {
+              return String(value || '')
+                .trim()
+                .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                .replace(/`+/g, '')
+                .replace(/\*\*/g, '')
+                .trim();
             }
 
             function extractMetaFromBody(bodyText) {
@@ -73,12 +85,12 @@ jobs:
 
                 const difficultyMatch = line.match(/(?:^|\s)(?:難度|Difficulty)\s*[:：]\s*(.+)$/i);
                 if (!difficulty && difficultyMatch) {
-                  difficulty = difficultyMatch[1].trim().toLowerCase();
+                  difficulty = cleanMetaValue(difficultyMatch[1]).toLowerCase();
                 }
 
                 const topicsMatch = line.match(/(?:^|\s)(?:主題|Topics?)\s*[:：]\s*(.+)$/i);
                 if (topics.length === 0 && topicsMatch) {
-                  topics = topicsMatch[1]
+                  topics = cleanMetaValue(topicsMatch[1])
                     .split(/[\/、,，]/)
                     .map(s => s.trim().toLowerCase())
                     .filter(Boolean)
