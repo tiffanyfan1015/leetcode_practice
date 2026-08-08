@@ -1,0 +1,113 @@
+name: Sync LeetCode Issues
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * *"
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync issues
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const configPath = path.join(process.env.GITHUB_WORKSPACE, 'leetcode.config.json');
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+            const sourceOwner = config.source.owner;
+            const sourceRepo = config.source.repo;
+            const keyword = String(config.source.titleKeyword || 'leetcode').toLowerCase();
+            const targetOwner = config.target.owner;
+            const targetRepo = config.target.repo;
+            const sourceLabel = config.labels.source;
+            const statusTodo = config.labels.statusTodo;
+
+            if (!targetOwner || targetOwner === 'YOUR_GITHUB_OWNER') {
+              core.setFailed('leetcode.config.json target.owner 尚未設定');
+              return;
+            }
+
+            if (!targetRepo || targetRepo === 'YOUR_REPO_NAME') {
+              core.setFailed('leetcode.config.json target.repo 尚未設定');
+              return;
+            }
+
+            const sourceIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: sourceOwner,
+                repo: sourceRepo,
+                state: 'open',
+                per_page: 100
+              }
+            );
+
+            const matched = sourceIssues.filter(issue => {
+              if (issue.pull_request) return false;
+              return String(issue.title || '').toLowerCase().includes(keyword);
+            });
+
+            core.info(`Matched source issues: ${matched.length}`);
+
+            const targetIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                state: 'all',
+                per_page: 100
+              }
+            );
+
+            const existingMarkers = new Set();
+            for (const issue of targetIssues) {
+              const body = issue.body || '';
+              const markerMatch = body.match(/<!--\s*source_issue:\s*(\d+)\s*-->/);
+              if (markerMatch) {
+                existingMarkers.add(Number(markerMatch[1]));
+              }
+            }
+
+            let createdCount = 0;
+
+            for (const issue of matched) {
+              if (existingMarkers.has(issue.number)) {
+                core.info(`Skip existing source issue #${issue.number}`);
+                continue;
+              }
+
+              const body = [
+                `Source Issue: ${issue.html_url}`,
+                '',
+                `Original title: ${issue.title}`,
+                '',
+                `<!-- source_repo: ${sourceOwner}/${sourceRepo} -->`,
+                `<!-- source_issue: ${issue.number} -->`
+              ].join('\n');
+
+              await github.rest.issues.create({
+                owner: targetOwner,
+                repo: targetRepo,
+                title: `[LeetCode] ${issue.title}`,
+                body,
+                labels: [sourceLabel, statusTodo]
+              });
+
+              createdCount += 1;
+              core.info(`Created issue for source #${issue.number}`);
+            }
+
+            core.info(`Done. Created ${createdCount} issue(s).`);

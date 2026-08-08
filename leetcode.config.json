@@ -1,0 +1,22 @@
+{
+  "source": {
+    "owner": "tar-ooo-ooo",
+    "repo": "skill-ai",
+    "titleKeyword": "leetcode"
+  },
+  "target": {
+    "owner": "tiffanyfan1015",
+    "repo": "leetcode_practice"
+  },
+  "sync": {
+    "scheduleUtcCron": "0 9 * * *"
+  },
+  "labels": {
+    "source": "source:leetcode",
+    "statusTodo": "status:todo",
+    "statusSolving": "status:solving",
+    "statusSolved": "status:solved",
+    "difficultyPrefix": "difficulty:",
+    "topicPrefix": "topic:"
+  }
+}

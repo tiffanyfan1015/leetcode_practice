@@ -1,0 +1,182 @@
+name: Update LeetCode Issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_issue_number:
+        description: "來源 repo 的 issue 編號"
+        required: true
+        type: string
+      slug:
+        description: "題目資料夾 slug，例如 two-sum"
+        required: true
+        type: string
+      difficulty:
+        description: "easy / medium / hard"
+        required: true
+        type: choice
+        options:
+          - easy
+          - medium
+          - hard
+      topics:
+        description: "分類，逗號分隔，例如 array,hash-table"
+        required: false
+        type: string
+      solution_path:
+        description: "解答檔案路徑，例如 problems/two-sum/solution.py"
+        required: true
+        type: string
+      notes_path:
+        description: "題解檔案路徑，例如 problems/two-sum/README.md"
+        required: true
+        type: string
+      summary:
+        description: "留言摘要"
+        required: false
+        type: string
+      mark_as_solved:
+        description: "是否標記為 solved 並關閉 issue"
+        required: true
+        type: boolean
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update target issue
+        uses: actions/github-script@v7
+        env:
+          INPUT_SOURCE_ISSUE_NUMBER: ${{ inputs.source_issue_number }}
+          INPUT_SLUG: ${{ inputs.slug }}
+          INPUT_DIFFICULTY: ${{ inputs.difficulty }}
+          INPUT_TOPICS: ${{ inputs.topics }}
+          INPUT_SOLUTION_PATH: ${{ inputs.solution_path }}
+          INPUT_NOTES_PATH: ${{ inputs.notes_path }}
+          INPUT_SUMMARY: ${{ inputs.summary }}
+          INPUT_MARK_AS_SOLVED: ${{ inputs.mark_as_solved }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const configPath = path.join(process.env.GITHUB_WORKSPACE, 'leetcode.config.json');
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+            const targetOwner = config.target.owner;
+            const targetRepo = config.target.repo;
+            const sourceLabel = config.labels.source;
+            const statusTodo = config.labels.statusTodo;
+            const statusSolving = config.labels.statusSolving;
+            const statusSolved = config.labels.statusSolved;
+            const difficultyPrefix = config.labels.difficultyPrefix;
+            const topicPrefix = config.labels.topicPrefix;
+
+            const sourceIssueNumber = Number(process.env.INPUT_SOURCE_ISSUE_NUMBER);
+            const slug = process.env.INPUT_SLUG;
+            const difficulty = String(process.env.INPUT_DIFFICULTY || '').trim().toLowerCase();
+            const topicsRaw = String(process.env.INPUT_TOPICS || '');
+            const solutionPath = process.env.INPUT_SOLUTION_PATH;
+            const notesPath = process.env.INPUT_NOTES_PATH;
+            const summary = String(process.env.INPUT_SUMMARY || '').trim();
+            const markAsSolved = String(process.env.INPUT_MARK_AS_SOLVED).toLowerCase() === 'true';
+
+            if (!sourceIssueNumber) {
+              core.setFailed('source_issue_number 無效');
+              return;
+            }
+
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                state: 'all',
+                per_page: 100
+              }
+            );
+
+            const targetIssue = issues.find(issue => {
+              const body = issue.body || '';
+              return body.includes(`<!-- source_issue: ${sourceIssueNumber} -->`);
+            });
+
+            if (!targetIssue) {
+              core.setFailed(`找不到對應 source issue #${sourceIssueNumber} 的 target issue`);
+              return;
+            }
+
+            const topics = topicsRaw
+              .split(',')
+              .map(s => s.trim().toLowerCase())
+              .filter(Boolean);
+
+            const desiredLabels = new Set([sourceLabel]);
+            desiredLabels.add(markAsSolved ? statusSolved : statusSolving);
+            desiredLabels.add(`${difficultyPrefix}${difficulty}`);
+            for (const topic of topics) {
+              desiredLabels.add(`${topicPrefix}${topic}`);
+            }
+
+            const existingLabels = (targetIssue.labels || []).map(label =>
+              typeof label === 'string' ? label : label.name
+            );
+
+            const filteredExisting = existingLabels.filter(name => {
+              if (!name) return false;
+              if (name === statusTodo || name === statusSolving || name === statusSolved) return false;
+              if (name.startsWith(difficultyPrefix)) return false;
+              return true;
+            });
+
+            const finalLabels = [...new Set([...filteredExisting, ...desiredLabels])];
+
+            const commentLines = [
+              '已更新解題紀錄。',
+              '',
+              `- Slug: \`${slug}\``,
+              `- Solution: \`${solutionPath}\``,
+              `- Notes: \`${notesPath}\``,
+              `- Difficulty: \`${difficulty}\``
+            ];
+
+            if (topics.length > 0) {
+              commentLines.push(`- Topics: ${topics.map(t => `\`${t}\``).join(', ')}`);
+            }
+
+            if (summary) {
+              commentLines.push('', '思路摘要：', summary);
+            }
+
+            await github.rest.issues.createComment({
+              owner: targetOwner,
+              repo: targetRepo,
+              issue_number: targetIssue.number,
+              body: commentLines.join('\n')
+            });
+
+            await github.rest.issues.setLabels({
+              owner: targetOwner,
+              repo: targetRepo,
+              issue_number: targetIssue.number,
+              labels: finalLabels
+            });
+
+            if (markAsSolved) {
+              await github.rest.issues.update({
+                owner: targetOwner,
+                repo: targetRepo,
+                issue_number: targetIssue.number,
+                state: 'closed'
+              });
+            }
+
+            core.info(`Updated target issue #${targetIssue.number}`);
