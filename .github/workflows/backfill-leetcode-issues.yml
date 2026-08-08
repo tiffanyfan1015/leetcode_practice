@@ -40,27 +40,10 @@ jobs:
                 .replace(/[_\s]+/g, '-');
             }
 
-            const repoLabels = await github.paginate(
-              github.rest.issues.listLabelsForRepo,
-              {
-                owner: targetOwner,
-                repo: targetRepo,
-                per_page: 100
-              }
-            );
-            const availableLabels = new Map();
-            for (const label of repoLabels) {
-              const actualName = String(label.name || '').trim();
-              const normalizedName = normalizeLabelName(actualName);
-              if (actualName && normalizedName && !availableLabels.has(normalizedName)) {
-                availableLabels.set(normalizedName, actualName);
-              }
-            }
-
             function extractMetaFromBody(bodyText) {
               const body = String(bodyText || '');
-              const difficultyMatch = body.match(/^難度：\s*(.+)$/m);
-              const topicsMatch = body.match(/^主題：\s*(.+)$/m);
+              const difficultyMatch = body.match(/^\u96e3\u5ea6\uff1a\s*(.+)$/m);
+              const topicsMatch = body.match(/^\u4e3b\u984c\uff1a\s*(.+)$/m);
 
               const difficulty = difficultyMatch
                 ? difficultyMatch[1].trim().toLowerCase()
@@ -71,7 +54,7 @@ jobs:
                     .split('/')
                     .map(s => s.trim().toLowerCase())
                     .filter(Boolean)
-                    .map(s => s.replace(/\s+/g, '-'))
+                    .map(s => s.replace(/[_\s]+/g, '-'))
                 : [];
 
               return { difficulty, topics };
@@ -91,6 +74,24 @@ jobs:
                 `<!-- source_repo: ${sourceOwner}/${sourceRepo} -->`,
                 `<!-- source_issue: ${sourceIssue.number} -->`
               ].join('\n');
+            }
+
+            const repoLabels = await github.paginate(
+              github.rest.issues.listLabelsForRepo,
+              {
+                owner: targetOwner,
+                repo: targetRepo,
+                per_page: 100
+              }
+            );
+
+            const availableLabels = new Map();
+            for (const label of repoLabels) {
+              const actualName = String(label.name || '').trim();
+              const normalizedName = normalizeLabelName(actualName);
+              if (actualName && normalizedName && !availableLabels.has(normalizedName)) {
+                availableLabels.set(normalizedName, actualName);
+              }
             }
 
             const targetIssues = await github.paginate(
@@ -129,38 +130,46 @@ jobs:
 
               const sourceData = sourceIssue.data;
               const meta = extractMetaFromBody(sourceData.body || '');
+              core.info(`Parsed source #${sourceIssueNumber}: difficulty=${meta.difficulty || 'N/A'}, topics=${meta.topics.join(', ') || 'N/A'}`);
               const nextBody = buildSyncedBody(sourceData);
 
               const existingLabels = (issue.labels || []).map(label =>
                 typeof label === 'string' ? label : label.name
               ).filter(Boolean);
 
-              const statusLabels = [statusTodo, statusSolving, statusSolved];
+              const statusLabels = [statusTodo, statusSolving, statusSolved].map(normalizeLabelName);
               const keptLabels = existingLabels.filter(name => {
-                if (['easy', 'medium', 'hard'].includes(name)) return false;
-                if (statusLabels.includes(name)) return true;
+                const normalized = normalizeLabelName(name);
+                if (['easy', 'medium', 'hard'].includes(normalized)) return false;
+                if (statusLabels.includes(normalized)) return true;
                 return true;
               });
 
               const labels = [...keptLabels];
-              if (meta.difficulty && !labels.includes(meta.difficulty)) {
+
+              if (meta.difficulty) {
                 const difficultyLabel = availableLabels.get(normalizeLabelName(meta.difficulty));
                 if (difficultyLabel) {
-                  labels.push(difficultyLabel);
+                  if (!labels.some(name => normalizeLabelName(name) === normalizeLabelName(difficultyLabel))) {
+                    labels.push(difficultyLabel);
+                  }
                 } else {
                   core.info(`Skip missing label: ${meta.difficulty}`);
                 }
               }
+
               for (const topic of meta.topics) {
-                if (!labels.includes(topic)) {
-                  const topicLabel = availableLabels.get(normalizeLabelName(topic));
-                  if (topicLabel) {
+                const topicLabel = availableLabels.get(normalizeLabelName(topic));
+                if (topicLabel) {
+                  if (!labels.some(name => normalizeLabelName(name) === normalizeLabelName(topicLabel))) {
                     labels.push(topicLabel);
-                  } else {
-                    core.info(`Skip missing label: ${topic}`);
                   }
+                } else {
+                  core.info(`Skip missing label: ${topic}`);
                 }
               }
+
+              core.info(`Apply labels to target #${issue.number}: ${labels.join(', ') || 'N/A'}`);
 
               await github.rest.issues.update({
                 owner: targetOwner,
