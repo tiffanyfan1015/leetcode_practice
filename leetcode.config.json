@@ -2,7 +2,9 @@
   "source": {
     "owner": "tar-ooo-ooo",
     "repo": "skill-ai",
-    "titleKeyword": "leetcode"
+    "titleKeyword": "leetcode",
+    "requiredLabel": "daily",
+    "createdFrom": "2026-08-06"
   },
   "target": {
     "owner": "tiffanyfan1015",
@@ -12,11 +14,10 @@
     "scheduleUtcCron": "0 9 * * *"
   },
   "labels": {
-    "source": "source:leetcode",
-    "statusTodo": "status:todo",
-    "statusSolving": "status:solving",
-    "statusSolved": "status:solved",
-    "difficultyPrefix": "difficulty:",
-    "topicPrefix": "topic:"
+    "statusTodo": "todo",
+    "statusSolving": "solving",
+    "statusSolved": "solved",
+    "difficultyPrefix": "",
+    "topicPrefix": ""
   }
 }

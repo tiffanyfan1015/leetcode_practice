@@ -1,8 +1,8 @@
 ---
 name: LeetCode Practice
-about: 手動建立 LeetCode 練習 issue
+about: Manually create a LeetCode practice issue
 title: "[LeetCode] "
-labels: ["source:leetcode", "status:todo"]
+labels: ["todo"]
 assignees: []
 ---
 

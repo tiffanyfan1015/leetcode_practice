@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       source_issue_number:
-        description: "來源 repo 的 issue 編號"
+        description: "Source repo issue number"
         required: true
         type: string
       slug:
-        description: "題目資料夾 slug，例如 two-sum"
+        description: "Problem slug, for example two-sum"
         required: true
         type: string
       difficulty:
@@ -20,23 +20,23 @@ on:
           - medium
           - hard
       topics:
-        description: "分類，逗號分隔，例如 array,hash-table"
+        description: "Comma-separated topics, for example array,hash-table"
         required: false
         type: string
       solution_path:
-        description: "解答檔案路徑，例如 problems/two-sum/solution.py"
+        description: "Solution file path, for example problems/two-sum/solution.py"
         required: true
         type: string
       notes_path:
-        description: "題解檔案路徑，例如 problems/two-sum/README.md"
+        description: "Notes file path, for example problems/two-sum/README.md"
         required: true
         type: string
       summary:
-        description: "留言摘要"
+        description: "Short comment summary"
         required: false
         type: string
       mark_as_solved:
-        description: "是否標記為 solved 並關閉 issue"
+        description: "Mark as solved and close the issue"
         required: true
         type: boolean
 
@@ -73,7 +73,6 @@ jobs:
 
             const targetOwner = config.target.owner;
             const targetRepo = config.target.repo;
-            const sourceLabel = config.labels.source;
             const statusTodo = config.labels.statusTodo;
             const statusSolving = config.labels.statusSolving;
             const statusSolved = config.labels.statusSolved;
@@ -90,7 +89,7 @@ jobs:
             const markAsSolved = String(process.env.INPUT_MARK_AS_SOLVED).toLowerCase() === 'true';
 
             if (!sourceIssueNumber) {
-              core.setFailed('source_issue_number 無效');
+              core.setFailed('source_issue_number is invalid');
               return;
             }
 
@@ -110,7 +109,7 @@ jobs:
             });
 
             if (!targetIssue) {
-              core.setFailed(`找不到對應 source issue #${sourceIssueNumber} 的 target issue`);
+              core.setFailed(`Cannot find synced target issue for source issue #${sourceIssueNumber}`);
               return;
             }
 
@@ -119,8 +118,7 @@ jobs:
               .map(s => s.trim().toLowerCase())
               .filter(Boolean);
 
-            const desiredLabels = new Set([sourceLabel]);
-            desiredLabels.add(markAsSolved ? statusSolved : statusSolving);
+            const desiredLabels = new Set([markAsSolved ? statusSolved : statusSolving]);
             desiredLabels.add(`${difficultyPrefix}${difficulty}`);
             for (const topic of topics) {
               desiredLabels.add(`${topicPrefix}${topic}`);
@@ -133,14 +131,17 @@ jobs:
             const filteredExisting = existingLabels.filter(name => {
               if (!name) return false;
               if (name === statusTodo || name === statusSolving || name === statusSolved) return false;
-              if (name.startsWith(difficultyPrefix)) return false;
+              if (difficultyPrefix && name.startsWith(difficultyPrefix)) return false;
+              if (topicPrefix && name.startsWith(topicPrefix)) return false;
+              if (!difficultyPrefix && ['easy', 'medium', 'hard'].includes(name)) return false;
+              if (!topicPrefix && topics.includes(name)) return false;
               return true;
             });
 
             const finalLabels = [...new Set([...filteredExisting, ...desiredLabels])];
 
             const commentLines = [
-              '已更新解題紀錄。',
+              'Updated solution record.',
               '',
               `- Slug: \`${slug}\``,
               `- Solution: \`${solutionPath}\``,
@@ -153,7 +154,7 @@ jobs:
             }
 
             if (summary) {
-              commentLines.push('', '思路摘要：', summary);
+              commentLines.push('', 'Summary:', summary);
             }
 
             await github.rest.issues.createComment({

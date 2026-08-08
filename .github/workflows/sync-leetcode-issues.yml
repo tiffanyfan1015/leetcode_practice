@@ -30,18 +30,25 @@ jobs:
             const sourceOwner = config.source.owner;
             const sourceRepo = config.source.repo;
             const keyword = String(config.source.titleKeyword || 'leetcode').toLowerCase();
+            const requiredLabel = String(config.source.requiredLabel || 'daily').toLowerCase();
+            const createdFrom = String(config.source.createdFrom || '2026-08-06');
             const targetOwner = config.target.owner;
             const targetRepo = config.target.repo;
-            const sourceLabel = config.labels.source;
             const statusTodo = config.labels.statusTodo;
 
+            const createdFromDate = new Date(`${createdFrom}T00:00:00Z`);
+            if (Number.isNaN(createdFromDate.getTime())) {
+              core.setFailed('leetcode.config.json source.createdFrom must be YYYY-MM-DD');
+              return;
+            }
+
             if (!targetOwner || targetOwner === 'YOUR_GITHUB_OWNER') {
-              core.setFailed('leetcode.config.json target.owner 尚未設定');
+              core.setFailed('leetcode.config.json target.owner is not set');
               return;
             }
 
             if (!targetRepo || targetRepo === 'YOUR_REPO_NAME') {
-              core.setFailed('leetcode.config.json target.repo 尚未設定');
+              core.setFailed('leetcode.config.json target.repo is not set');
               return;
             }
 
@@ -57,7 +64,17 @@ jobs:
 
             const matched = sourceIssues.filter(issue => {
               if (issue.pull_request) return false;
-              return String(issue.title || '').toLowerCase().includes(keyword);
+
+              const titleMatched = String(issue.title || '').toLowerCase().includes(keyword);
+              const labelNames = (issue.labels || []).map(label =>
+                typeof label === 'string' ? label.toLowerCase() : String(label.name || '').toLowerCase()
+              );
+              const hasRequiredLabel = labelNames.includes(requiredLabel);
+
+              const createdAt = new Date(issue.created_at);
+              const createdMatched = !Number.isNaN(createdAt.getTime()) && createdAt >= createdFromDate;
+
+              return titleMatched && hasRequiredLabel && createdMatched;
             });
 
             core.info(`Matched source issues: ${matched.length}`);
@@ -103,7 +120,7 @@ jobs:
                 repo: targetRepo,
                 title: `[LeetCode] ${issue.title}`,
                 body,
-                labels: [sourceLabel, statusTodo]
+                labels: [statusTodo]
               });
 
               createdCount += 1;
