@@ -77,6 +77,10 @@ jobs:
             const solutionPath = `problems/${slug}/solution.cpp`;
             const notesPath = `problems/${slug}/README.md`;
             const markAsSolved = String(process.env.INPUT_MARK_AS_SOLVED).toLowerCase() === 'true';
+            const refName = process.env.GITHUB_REF_NAME || 'main';
+            const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+            const solutionUrl = `${serverUrl}/${targetOwner}/${targetRepo}/blob/${refName}/${solutionPath}`;
+            const notesUrl = `${serverUrl}/${targetOwner}/${targetRepo}/blob/${refName}/${notesPath}`;
 
             if (!targetIssueNumber) {
               core.setFailed('target_issue_number is invalid');
@@ -120,13 +124,37 @@ jobs:
 
             const finalLabels = [...new Set([...filteredExisting, ...desiredLabels])];
 
+            let notesContent = '';
+            const notesFullPath = path.join(process.env.GITHUB_WORKSPACE, notesPath);
+            if (fs.existsSync(notesFullPath)) {
+              notesContent = fs.readFileSync(notesFullPath, 'utf8').trim();
+            } else {
+              core.info(`Notes file not found: ${notesPath}`);
+            }
+
             const commentLines = [
               'Updated solution record.',
               '',
               `- Slug: \`${slug}\``,
-              `- Solution: \`${solutionPath}\``,
-              `- Notes: \`${notesPath}\``
+              `- Solution: [${solutionPath}](${solutionUrl})`,
+              `- Notes: [${notesPath}](${notesUrl})`
             ];
+
+            if (notesContent) {
+              commentLines.push(
+                '',
+                '## Notes',
+                '',
+                notesContent
+              );
+            } else {
+              commentLines.push(
+                '',
+                '## Notes',
+                '',
+                '_README.md not found at workflow run time._'
+              );
+            }
 
             await github.rest.issues.createComment({
               owner: targetOwner,
