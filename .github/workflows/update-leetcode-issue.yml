@@ -11,30 +11,6 @@ on:
         description: "Problem slug, for example two-sum"
         required: true
         type: string
-      difficulty:
-        description: "easy / medium / hard"
-        required: true
-        type: choice
-        options:
-          - easy
-          - medium
-          - hard
-      topics:
-        description: "Comma-separated topics, for example array,hash-table"
-        required: false
-        type: string
-      solution_path:
-        description: "Solution file path, for example problems/two-sum/solution.py"
-        required: true
-        type: string
-      notes_path:
-        description: "Notes file path, for example problems/two-sum/README.md"
-        required: true
-        type: string
-      summary:
-        description: "Short comment summary"
-        required: false
-        type: string
       mark_as_solved:
         description: "Mark as solved and close the issue"
         required: true
@@ -56,11 +32,6 @@ jobs:
         env:
           INPUT_SOURCE_ISSUE_NUMBER: ${{ inputs.source_issue_number }}
           INPUT_SLUG: ${{ inputs.slug }}
-          INPUT_DIFFICULTY: ${{ inputs.difficulty }}
-          INPUT_TOPICS: ${{ inputs.topics }}
-          INPUT_SOLUTION_PATH: ${{ inputs.solution_path }}
-          INPUT_NOTES_PATH: ${{ inputs.notes_path }}
-          INPUT_SUMMARY: ${{ inputs.summary }}
           INPUT_MARK_AS_SOLVED: ${{ inputs.mark_as_solved }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -76,8 +47,6 @@ jobs:
             const statusTodo = config.labels.statusTodo;
             const statusSolving = config.labels.statusSolving;
             const statusSolved = config.labels.statusSolved;
-            const difficultyPrefix = config.labels.difficultyPrefix;
-            const topicPrefix = config.labels.topicPrefix;
 
             function normalizeLabelName(value) {
               return String(value || '')
@@ -105,11 +74,8 @@ jobs:
 
             const sourceIssueNumber = Number(process.env.INPUT_SOURCE_ISSUE_NUMBER);
             const slug = process.env.INPUT_SLUG;
-            const difficulty = String(process.env.INPUT_DIFFICULTY || '').trim().toLowerCase();
-            const topicsRaw = String(process.env.INPUT_TOPICS || '');
-            const solutionPath = process.env.INPUT_SOLUTION_PATH;
-            const notesPath = process.env.INPUT_NOTES_PATH;
-            const summary = String(process.env.INPUT_SUMMARY || '').trim();
+            const solutionPath = `problems/${slug}/solution.cpp`;
+            const notesPath = `problems/${slug}/README.md`;
             const markAsSolved = String(process.env.INPUT_MARK_AS_SOLVED).toLowerCase() === 'true';
 
             if (!sourceIssueNumber) {
@@ -137,11 +103,6 @@ jobs:
               return;
             }
 
-            const topics = topicsRaw
-              .split(',')
-              .map(s => s.trim().toLowerCase())
-              .filter(Boolean);
-
             const desiredLabels = new Set();
             const statusLabel = markAsSolved ? statusSolved : statusSolving;
             const resolvedStatusLabel = availableLabels.get(normalizeLabelName(statusLabel));
@@ -151,35 +112,16 @@ jobs:
               core.info(`Skip missing label: ${statusLabel}`);
             }
 
-            const difficultyLabel = `${difficultyPrefix}${difficulty}`;
-            const resolvedDifficultyLabel = availableLabels.get(normalizeLabelName(difficultyLabel));
-            if (resolvedDifficultyLabel) {
-              desiredLabels.add(resolvedDifficultyLabel);
-            } else {
-              core.info(`Skip missing label: ${difficultyLabel}`);
-            }
-
-            for (const topic of topics) {
-              const topicLabel = `${topicPrefix}${topic}`;
-              const resolvedTopicLabel = availableLabels.get(normalizeLabelName(topicLabel));
-              if (resolvedTopicLabel) {
-                desiredLabels.add(resolvedTopicLabel);
-              } else {
-                core.info(`Skip missing label: ${topicLabel}`);
-              }
-            }
-
             const existingLabels = (targetIssue.labels || []).map(label =>
               typeof label === 'string' ? label : label.name
             );
 
             const filteredExisting = existingLabels.filter(name => {
               if (!name) return false;
-              if (name === statusTodo || name === statusSolving || name === statusSolved) return false;
-              if (difficultyPrefix && name.startsWith(difficultyPrefix)) return false;
-              if (topicPrefix && name.startsWith(topicPrefix)) return false;
-              if (!difficultyPrefix && ['easy', 'medium', 'hard'].includes(name)) return false;
-              if (!topicPrefix && topics.includes(name)) return false;
+              const normalized = normalizeLabelName(name);
+              if (normalized === normalizeLabelName(statusTodo)) return false;
+              if (normalized === normalizeLabelName(statusSolving)) return false;
+              if (normalized === normalizeLabelName(statusSolved)) return false;
               return true;
             });
 
@@ -190,17 +132,8 @@ jobs:
               '',
               `- Slug: \`${slug}\``,
               `- Solution: \`${solutionPath}\``,
-              `- Notes: \`${notesPath}\``,
-              `- Difficulty: \`${difficulty}\``
+              `- Notes: \`${notesPath}\``
             ];
-
-            if (topics.length > 0) {
-              commentLines.push(`- Topics: ${topics.map(t => `\`${t}\``).join(', ')}`);
-            }
-
-            if (summary) {
-              commentLines.push('', 'Summary:', summary);
-            }
 
             await github.rest.issues.createComment({
               owner: targetOwner,

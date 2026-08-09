@@ -218,7 +218,7 @@ jobs:
               await github.rest.issues.create({
                 owner: targetOwner,
                 repo: targetRepo,
-                title: `[LeetCode] ${issue.title}`,
+                title: issue.title,
                 body,
                 labels: [...new Set(labels)]
               });
