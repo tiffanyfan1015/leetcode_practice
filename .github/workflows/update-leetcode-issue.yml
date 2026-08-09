@@ -3,8 +3,8 @@ name: Update LeetCode Issue
 on:
   workflow_dispatch:
     inputs:
-      source_issue_number:
-        description: "Source repo issue number"
+      target_issue_number:
+        description: "Target repo issue number"
         required: true
         type: string
       slug:
@@ -30,7 +30,7 @@ jobs:
       - name: Update target issue
         uses: actions/github-script@v7
         env:
-          INPUT_SOURCE_ISSUE_NUMBER: ${{ inputs.source_issue_number }}
+          INPUT_TARGET_ISSUE_NUMBER: ${{ inputs.target_issue_number }}
           INPUT_SLUG: ${{ inputs.slug }}
           INPUT_MARK_AS_SOLVED: ${{ inputs.mark_as_solved }}
         with:
@@ -72,34 +72,27 @@ jobs:
               }
             }
 
-            const sourceIssueNumber = Number(process.env.INPUT_SOURCE_ISSUE_NUMBER);
+            const targetIssueNumber = Number(process.env.INPUT_TARGET_ISSUE_NUMBER);
             const slug = process.env.INPUT_SLUG;
             const solutionPath = `problems/${slug}/solution.cpp`;
             const notesPath = `problems/${slug}/README.md`;
             const markAsSolved = String(process.env.INPUT_MARK_AS_SOLVED).toLowerCase() === 'true';
 
-            if (!sourceIssueNumber) {
-              core.setFailed('source_issue_number is invalid');
+            if (!targetIssueNumber) {
+              core.setFailed('target_issue_number is invalid');
               return;
             }
 
-            const issues = await github.paginate(
-              github.rest.issues.listForRepo,
-              {
+            let targetIssue;
+            try {
+              const response = await github.rest.issues.get({
                 owner: targetOwner,
                 repo: targetRepo,
-                state: 'all',
-                per_page: 100
-              }
-            );
-
-            const targetIssue = issues.find(issue => {
-              const body = issue.body || '';
-              return body.includes(`<!-- source_issue: ${sourceIssueNumber} -->`);
-            });
-
-            if (!targetIssue) {
-              core.setFailed(`Cannot find synced target issue for source issue #${sourceIssueNumber}`);
+                issue_number: targetIssueNumber
+              });
+              targetIssue = response.data;
+            } catch (error) {
+              core.setFailed(`Cannot find target issue #${targetIssueNumber}`);
               return;
             }
 
